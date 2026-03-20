@@ -327,7 +327,110 @@ graph TD
 
 ## 11. Docker部署配置说明
 
-### 11.1 后端Dockerfile
+### 11.1 GLM模型配置
+
+#### 11.1.1 环境变量设置
+
+| 环境变量 | 说明 | 默认值 | 必需 |
+|---------|------|-------|------|
+| GLM_API_KEY | GLM模型API密钥 | 空 | 是（使用GLM模型时） |
+| GLM_API_URL | GLM模型API地址 | https://open.bigmodel.cn/api/mt/text2text/chat | 否 |
+| GLM_MODEL | GLM模型名称 | glm-4 | 否 |
+| GLM_TEMPERATURE | 生成温度参数 | 0.7 | 否 |
+| GLM_MAX_TOKENS | 最大生成token数 | 2000 | 否 |
+| GLM_TIMEOUT | API超时时间（毫秒） | 30000 | 否 |
+
+#### 11.1.2 本地开发环境配置
+
+**Windows**（PowerShell）：
+```powershell
+$env:GLM_API_KEY="your-api-key-here"
+```
+
+**macOS/Linux**（bash/zsh）：
+```bash
+export GLM_API_KEY="your-api-key-here"
+```
+
+#### 11.1.3 生产环境配置
+
+**Docker Compose**：
+在`docker-compose.yml`中添加环境变量：
+
+```yaml
+services:
+  backend:
+    build: ./health-management-system
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GLM_API_KEY=${GLM_API_KEY}
+    depends_on:
+      - redis
+```
+
+**Kubernetes**：
+使用Secret存储API密钥：
+
+```bash
+kubectl create secret generic glm-api-secret --from-literal=api-key=your-api-key-here
+```
+
+在Deployment中引用：
+
+```yaml
+env:
+  - name: GLM_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: glm-api-secret
+        key: api-key
+```
+
+#### 11.1.4 配置验证
+
+1. **本地验证**：
+   ```bash
+   # 设置环境变量
+   export GLM_API_KEY="your-api-key-here"
+   # 启动后端服务
+   cd health-management-system && mvn spring-boot:run
+   # 测试AI接口
+   curl -X POST http://localhost:8081/api/ai/chat \
+     -H "Authorization: Bearer your-jwt-token" \
+     -H "Content-Type: application/json" \
+     -d '{"message":"我最近经常头痛，该怎么办？"}'
+   ```
+
+2. **Docker验证**：
+   ```bash
+   # 设置环境变量
+   export GLM_API_KEY="your-api-key-here"
+   # 启动容器
+   docker-compose up -d
+   # 测试AI接口
+   curl -X POST http://localhost:8081/api/ai/chat \
+     -H "Authorization: Bearer your-jwt-token" \
+     -H "Content-Type: application/json" \
+     -d '{"message":"我最近经常头痛，该怎么办？"}'
+   ```
+
+#### 11.1.5 错误处理
+
+| 错误信息 | 原因 | 解决方案 |
+|---------|------|---------|
+| Invalid GLM API key | API密钥无效 | 检查GLM_API_KEY环境变量 |
+| GLM API access forbidden | API密钥权限不足 | 检查API密钥权限设置 |
+| GLM API error | API调用失败 | 检查网络连接和API服务状态 |
+| 抱歉，AI服务暂时不可用 | 其他错误 | 查看后端日志获取详细信息 |
+
+#### 11.1.6 降级机制
+
+当GLM API不可用时，系统会自动降级到内置的健康建议回复，确保服务可用性。
+
+### 11.2 后端Dockerfile
 
 ```dockerfile
 # Build stage

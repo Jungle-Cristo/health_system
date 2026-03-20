@@ -27,3 +27,13 @@ server:
 jwt:
   secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
   expiration: 86400000
+
+glm:
+  api-key: ${GLM_API_KEY:}
+  api-url: ${GLM_API_URL:https://open.bigmodel.cn/api/paas/v4/chat/completions}
+  model: ${GLM_MODEL:glm-4-flash}
+  temperature: ${GLM_TEMPERATURE:0.7}
+  max-tokens: ${GLM_MAX_TOKENS:2000}
+  timeout: ${GLM_TIMEOUT:30000}
+  retry-count: ${GLM_RETRY_COUNT:3}
+  retry-delay: ${GLM_RETRY_DELAY:1000}
