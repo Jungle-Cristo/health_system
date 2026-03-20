@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router';
 import GlassCard from '../../components/common/GlassCard.vue';
 import TrendChart from '../../components/health/TrendChart.vue';
 import DataInputForm from '../../components/health/DataInputForm.vue';
-import { Activity, Heart, Moon, Footprints } from 'lucide-vue-next';
+import { Activity, Heart, Moon, Footprints, MessageSquare } from 'lucide-vue-next';
+
+const router = useRouter();
 
 const stats = [
   { label: 'Steps', value: '8,432', unit: 'steps', icon: Footprints, color: 'text-blue-400' },
@@ -13,6 +16,10 @@ const stats = [
 
 const chartData = [1200, 1500, 1100, 1800, 2000, 1600, 2400];
 const chartLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const goToAiChat = () => {
+  router.push('/ai-chat');
+};
 </script>
 
 <template>
@@ -40,6 +47,23 @@ const chartLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
         <GlassCard>
           <h2 class="text-xl font-bold mb-6 text-gray-200">Quick Record</h2>
           <DataInputForm />
+        </GlassCard>
+
+        <GlassCard @click="goToAiChat" class="cursor-pointer">
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+              <MessageSquare class="w-6 h-6 text-white" />
+            </div>
+            <div class="flex-1">
+              <h2 class="text-xl font-bold text-gray-200">AI 健康助手</h2>
+              <p class="text-gray-400 text-sm">智能咨询，个性化建议</p>
+            </div>
+            <div class="text-indigo-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </div>
+          </div>
         </GlassCard>
 
         <GlassCard>
