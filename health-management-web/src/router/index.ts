@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import Home from '../views/user/Home.vue';
+import AIChat from '../views/user/AIChat.vue';
 import Login from '../views/Login.vue';
 import Register from '../views/Register.vue';
 
@@ -8,6 +9,12 @@ const routes = [
     path: '/',
     name: 'Home',
     component: Home,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/ai-chat',
+    name: 'AIChat',
+    component: AIChat,
     meta: { requiresAuth: true }
   },
   {
