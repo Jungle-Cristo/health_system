@@ -20,4 +20,9 @@ public interface HealthDataRepository extends JpaRepository<HealthData, Long> {
             @Param("userId") Long userId, 
             @Param("type") String type, 
             @Param("limit") int limit);
+    
+    List<HealthData> findByUserIdOrderByRecordDateDesc(Long userId);
+    
+    List<HealthData> findByUserIdAndRecordDateBetween(
+            Long userId, LocalDateTime startDate, LocalDateTime endDate);
 }

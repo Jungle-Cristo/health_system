@@ -1,5 +1,6 @@
 package com.health.utils;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +13,7 @@ public class RedisUtils {
 
     private static final ConcurrentHashMap<String, MemoryEntry> MEMORY = new ConcurrentHashMap<>();
 
+    @Autowired
     public RedisUtils(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
     }

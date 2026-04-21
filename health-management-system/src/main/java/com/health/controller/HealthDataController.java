@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/health")
+@RequestMapping("/health")
 @Tag(name = "健康数据管理", description = "健康数据相关接口")
 public class HealthDataController {
 
@@ -28,7 +28,7 @@ public class HealthDataController {
     @Operation(summary = "获取用户健康数据列表")
     @GetMapping("/data")
     public Result<List<HealthDataResponse>> getHealthDataList(
-            @RequestParam String type,
+            @RequestParam(required = false) String type,
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         return Result.success(healthDataService.getHealthDataList(type, startDate, endDate));

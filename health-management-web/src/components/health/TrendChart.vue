@@ -1,93 +1,291 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-import * as echarts from 'echarts';
+import { ref, onMounted, watch, computed } from 'vue';
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { LineChart } from 'echarts/charts';
+import {
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  TitleComponent,
+  DataZoomComponent
+} from 'echarts/components';
+import VChart from 'vue-echarts';
+import { Activity, TrendingUp, Calendar } from 'lucide-vue-next';
+import { ElSelect, ElOption } from 'element-plus';
+import { getHealthDataTrend, healthDataTypes, getLabelByType, getUnitByType } from '../../api/health';
+import type { HealthDataResponse } from '../../api/health';
 
-const chartRef = ref<HTMLElement | null>(null);
-let chart: echarts.ECharts | null = null;
+use([
+  CanvasRenderer,
+  LineChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  TitleComponent,
+  DataZoomComponent
+]);
 
 const props = defineProps<{
-  data: number[];
-  labels: string[];
-  title: string;
-  color?: string;
+  refreshTrigger?: number;
 }>();
 
-const initChart = () => {
-  if (!chartRef.value) return;
+const selectedType = ref('steps');
+const selectedPeriod = ref('week');
+const loading = ref(false);
+const trendData = ref<HealthDataResponse[]>([]);
+
+// 图表配置
+const chartOption = computed(() => {
+  const dates = trendData.value.map(item => {
+    const date = new Date(item.recordDate);
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  });
   
-  chart = echarts.init(chartRef.value, 'dark');
-  const option = {
+  const values = trendData.value.map(item => item.value);
+  const unit = getUnitByType(selectedType.value);
+  const label = getLabelByType(selectedType.value);
+  
+  return {
     backgroundColor: 'transparent',
-    title: {
-      text: props.title,
-      textStyle: { color: '#94a3b8', fontSize: 16 }
-    },
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: 'rgba(15, 23, 42, 0.8)',
-      borderColor: 'rgba(255, 255, 255, 0.1)',
-      textStyle: { color: '#f8fafc' }
-    },
     grid: {
       left: '3%',
       right: '4%',
-      bottom: '3%',
+      bottom: '15%',
+      top: '10%',
       containLabel: true
+    },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(30, 41, 59, 0.9)',
+      borderColor: 'rgba(255, 255, 255, 0.1)',
+      textStyle: {
+        color: '#fff'
+      },
+      formatter: (params: any) => {
+        const data = params[0];
+        return `
+          <div style="padding: 8px;">
+            <div style="color: #94a3b8; margin-bottom: 4px;">${data.name}</div>
+            <div style="font-size: 16px; font-weight: bold;">
+              ${data.value} ${unit}
+            </div>
+          </div>
+        `;
+      }
     },
     xAxis: {
       type: 'category',
-      boundaryGap: false,
-      data: props.labels,
-      axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.1)' } },
-      axisLabel: { color: '#94a3b8' }
+      data: dates,
+      axisLine: {
+        lineStyle: {
+          color: 'rgba(255, 255, 255, 0.1)'
+        }
+      },
+      axisLabel: {
+        color: '#94a3b8'
+      }
     },
     yAxis: {
       type: 'value',
-      splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.05)' } },
-      axisLabel: { color: '#94a3b8' }
+      axisLine: {
+        show: false
+      },
+      splitLine: {
+        lineStyle: {
+          color: 'rgba(255, 255, 255, 0.05)'
+        }
+      },
+      axisLabel: {
+        color: '#94a3b8',
+        formatter: `{value} ${unit}`
+      }
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        start: 0,
+        end: 100
+      }
+    ],
     series: [
       {
-        name: props.title,
+        name: label,
         type: 'line',
+        data: values,
         smooth: true,
-        data: props.data,
-        itemStyle: { color: props.color || '#6366f1' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: props.color || '#6366f1' + '88' },
-            { offset: 1, color: props.color || '#6366f1' + '00' }
-          ])
+        symbol: 'circle',
+        symbolSize: 8,
+        lineStyle: {
+          width: 3,
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 0,
+            colorStops: [
+              { offset: 0, color: '#6366f1' },
+              { offset: 1, color: '#8b5cf6' }
+            ]
+          }
         },
-        lineStyle: { width: 3 }
+        itemStyle: {
+          color: '#6366f1',
+          borderWidth: 2,
+          borderColor: '#fff'
+        },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(99, 102, 241, 0.3)' },
+              { offset: 1, color: 'rgba(99, 102, 241, 0.05)' }
+            ]
+          }
+        }
       }
     ]
   };
+});
+
+// 统计数据
+const stats = computed(() => {
+  if (trendData.value.length === 0) return null;
   
-  chart.setOption(option);
+  const values = trendData.value.map(item => item.value);
+  const sum = values.reduce((a, b) => a + b, 0);
+  const avg = sum / values.length;
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  
+  return {
+    avg: avg.toFixed(1),
+    max,
+    min,
+    count: values.length
+  };
+});
+
+// 加载趋势数据
+const loadTrendData = async () => {
+  loading.value = true;
+  try {
+    const res = await getHealthDataTrend(
+      selectedType.value,
+      selectedPeriod.value
+    );
+    trendData.value = res.data || [];
+  } catch (error) {
+    console.error('加载趋势数据失败:', error);
+  } finally {
+    loading.value = false;
+  }
 };
 
-const handleResize = () => {
-  chart?.resize();
-};
+// 监听变化
+watch(() => props.refreshTrigger, loadTrendData, { immediate: true });
+watch([selectedType, selectedPeriod], loadTrendData);
 
-onMounted(() => {
-  initChart();
-  window.addEventListener('resize', handleResize);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize);
-  chart?.dispose();
-});
-
-watch(() => props.data, () => {
-  chart?.setOption({
-    series: [{ data: props.data }]
-  });
-});
+onMounted(loadTrendData);
 </script>
 
 <template>
-  <div ref="chartRef" class="w-full h-full min-h-[300px]"></div>
+  <div class="trend-chart">
+    <!-- 标题和筛选 -->
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+        <Activity class="w-5 h-5 text-indigo-400" />
+        健康趋势分析
+      </h3>
+      
+      <div class="flex items-center gap-3">
+        <!-- 类型选择 -->
+        <el-select
+          v-model="selectedType"
+          class="text-sm"
+          style="--el-select-bg-color: rgba(255, 255, 255, 0.05); --el-select-border-color: rgba(255, 255, 255, 0.1); --el-select-text-color: white; --el-select-hover-border-color: rgba(255, 255, 255, 0.3);"
+        >
+          <el-option 
+            v-for="t in healthDataTypes" 
+            :key="t.value" 
+            :label="t.label" 
+            :value="t.value"
+            style="--el-option-bg-color: #1e293b; --el-option-text-color: white; --el-option-hover-bg-color: rgba(255, 255, 255, 0.1);"
+          />
+        </el-select>
+        
+        <!-- 时间范围 -->
+        <el-select
+          v-model="selectedPeriod"
+          class="text-sm"
+          style="--el-select-bg-color: rgba(255, 255, 255, 0.05); --el-select-border-color: rgba(255, 255, 255, 0.1); --el-select-text-color: white; --el-select-hover-border-color: rgba(255, 255, 255, 0.3);"
+        >
+          <el-option 
+            v-for="option in [{ value: 'week', label: '最近一周' }, { value: 'month', label: '最近一月' }, { value: 'quarter', label: '最近三月' }]" 
+            :key="option.value" 
+            :label="option.label" 
+            :value="option.value"
+            style="--el-option-bg-color: #1e293b; --el-option-text-color: white; --el-option-hover-bg-color: rgba(255, 255, 255, 0.1);"
+          />
+        </el-select>
+      </div>
+    </div>
+
+    <!-- 统计卡片 -->
+    <div v-if="stats" class="grid grid-cols-4 gap-3 mb-6">
+      <div class="glass-card p-3 rounded-xl text-center">
+        <div class="text-2xl font-bold text-white">{{ stats.avg }}</div>
+        <div class="text-xs text-gray-400">平均值</div>
+      </div>
+      <div class="glass-card p-3 rounded-xl text-center">
+        <div class="text-2xl font-bold text-green-400">{{ stats.max }}</div>
+        <div class="text-xs text-gray-400">最高值</div>
+      </div>
+      <div class="glass-card p-3 rounded-xl text-center">
+        <div class="text-2xl font-bold text-blue-400">{{ stats.min }}</div>
+        <div class="text-xs text-gray-400">最低值</div>
+      </div>
+      <div class="glass-card p-3 rounded-xl text-center">
+        <div class="text-2xl font-bold text-purple-400">{{ stats.count }}</div>
+        <div class="text-xs text-gray-400">记录数</div>
+      </div>
+    </div>
+
+    <!-- 加载状态 -->
+    <div v-if="loading" class="text-center py-12">
+      <div class="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full mx-auto"></div>
+      <p class="text-gray-400 mt-2">加载中...</p>
+    </div>
+
+    <!-- 空状态 -->
+    <div v-else-if="trendData.length === 0" class="text-center py-12">
+      <div class="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+        <TrendingUp class="w-8 h-8 text-gray-400" />
+      </div>
+      <p class="text-gray-400">暂无趋势数据</p>
+      <p class="text-gray-500 text-sm mt-1">记录更多数据以查看趋势</p>
+    </div>
+
+    <!-- 图表 -->
+    <div v-else class="h-80">
+      <v-chart class="w-full h-full" :option="chartOption" autoresize />
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.trend-chart {
+  width: 100%;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+}
+</style>
