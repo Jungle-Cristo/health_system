@@ -1,9 +1,14 @@
 package com.health.service;
 
+import com.health.ai.AIProvider;
 import com.health.entity.AIChatMessage;
+
 import java.util.List;
 import java.util.Map;
 
+/**
+ * AI服务接口
+ */
 public interface AIService {
     
     /**
@@ -34,4 +39,22 @@ public interface AIService {
      * @return AI回复内容
      */
     String generateAIResponse(String message, List<Map<String, Object>> context);
+    
+    /**
+     * 获取当前使用的AI服务提供商
+     * @return AI服务提供商
+     */
+    AIProvider getCurrentProvider();
+    
+    /**
+     * 切换AI服务提供商
+     * @param provider 目标提供商
+     */
+    void switchProvider(AIProvider provider);
+    
+    /**
+     * 获取所有可用的AI服务提供商
+     * @return 可用提供商列表
+     */
+    List<AIProvider> getAvailableProviders();
 }

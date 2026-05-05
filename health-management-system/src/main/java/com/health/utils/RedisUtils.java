@@ -1,7 +1,5 @@
 package com.health.utils;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,32 +7,18 @@ import java.util.concurrent.TimeUnit;
 
 @Component
 public class RedisUtils {
-    private final StringRedisTemplate redisTemplate;
 
     private static final ConcurrentHashMap<String, MemoryEntry> MEMORY = new ConcurrentHashMap<>();
 
-    @Autowired
-    public RedisUtils(StringRedisTemplate redisTemplate) {
-        this.redisTemplate = redisTemplate;
+    public RedisUtils() {
     }
 
     public void set(String key, String value, long timeout, TimeUnit unit) {
-        try {
-            redisTemplate.opsForValue().set(key, value, timeout, unit);
-            return;
-        } catch (Exception ignored) {
-        }
-
         long expireAt = System.currentTimeMillis() + unit.toMillis(timeout);
         MEMORY.put(key, new MemoryEntry(value, expireAt));
     }
 
     public String get(String key) {
-        try {
-            return redisTemplate.opsForValue().get(key);
-        } catch (Exception ignored) {
-        }
-
         MemoryEntry entry = MEMORY.get(key);
         if (entry == null) return null;
         if (entry.isExpired()) {
@@ -45,19 +29,10 @@ public class RedisUtils {
     }
 
     public Boolean delete(String key) {
-        try {
-            return redisTemplate.delete(key);
-        } catch (Exception ignored) {
-        }
         return MEMORY.remove(key) != null;
     }
 
     public Long increment(String key) {
-        try {
-            return redisTemplate.opsForValue().increment(key);
-        } catch (Exception ignored) {
-        }
-
         MemoryEntry entry = MEMORY.get(key);
         long next = 1;
         long now = System.currentTimeMillis();
@@ -75,12 +50,6 @@ public class RedisUtils {
     }
 
     public void expire(String key, long timeout, TimeUnit unit) {
-        try {
-            redisTemplate.expire(key, timeout, unit);
-            return;
-        } catch (Exception ignored) {
-        }
-
         MemoryEntry entry = MEMORY.get(key);
         if (entry == null || entry.isExpired()) {
             MEMORY.remove(key);

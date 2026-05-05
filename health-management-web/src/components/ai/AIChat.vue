@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { MessageSquare, Send, Loader2, Trash2, Clock, User, Bot, HelpCircle } from 'lucide-vue-next';
 import GlassCard from '../common/GlassCard.vue';
 import { getAIResponse, getChatHistory, type AIChatMessage, type AIChatResponse } from '../../api/ai';
@@ -12,6 +12,13 @@ const messages = ref<AIChatMessage[]>([]);
 const inputMessage = ref('');
 const loading = ref(false);
 const chatId = ref<string>(`chat_${Date.now()}`);
+
+// 处理外部传入的问题（用于常见问题点击）
+const handleExternalQuestion = async (question: string) => {
+  inputMessage.value = question;
+  await nextTick();
+  await sendMessage();
+};
 
 // 加载聊天历史
 const loadChatHistory = async () => {
@@ -63,16 +70,56 @@ const sendMessage = async () => {
       context: messages.value.slice(-5) // 发送最近5条消息作为上下文
     });
     
-    // 添加AI回复
-    const aiMessage: AIChatMessage = {
-      id: `msg_${Date.now() + 1}`,
-      role: 'assistant',
-      content: response.data.response,
-      timestamp: new Date().toISOString(),
-      chatId: chatId.value
-    };
-    
-    messages.value.push(aiMessage);
+    // 检查是否有错误
+    if (response.data.error) {
+      // 处理后端返回的错误
+      let errorContent = '抱歉，处理您的请求时出现错误。';
+      
+      switch (response.data.error) {
+        case 'INVALID_INPUT':
+          errorContent = '输入内容无效，请检查您的输入。';
+          break;
+        case 'RATE_LIMITED':
+          errorContent = '请求过于频繁，请稍后再试。';
+          break;
+        case 'INVALID_API_KEY':
+          errorContent = 'AI服务配置错误，请联系管理员。';
+          break;
+        case 'CONTENT_FILTERED':
+          errorContent = '您的请求内容不符合安全规范。';
+          break;
+        case 'TIMEOUT':
+          errorContent = '请求超时，请稍后再试。';
+          break;
+        case 'SERVICE_UNAVAILABLE':
+          errorContent = 'AI服务暂时不可用，请稍后再试。';
+          break;
+        default:
+          errorContent = response.data.message || '抱歉，我暂时无法回答您的问题。';
+      }
+      
+      // 添加错误消息
+      const errorMessage: AIChatMessage = {
+        id: `msg_${Date.now() + 1}`,
+        role: 'assistant',
+        content: errorContent,
+        timestamp: new Date().toISOString(),
+        chatId: chatId.value
+      };
+      
+      messages.value.push(errorMessage);
+    } else {
+      // 添加AI回复
+      const aiMessage: AIChatMessage = {
+        id: `msg_${Date.now() + 1}`,
+        role: 'assistant',
+        content: response.data.response,
+        timestamp: new Date().toISOString(),
+        chatId: chatId.value
+      };
+      
+      messages.value.push(aiMessage);
+    }
   } catch (error) {
     console.error('获取AI回复失败:', error);
     
@@ -80,7 +127,7 @@ const sendMessage = async () => {
     const errorMessage: AIChatMessage = {
       id: `msg_${Date.now() + 1}`,
       role: 'assistant',
-      content: '抱歉，我暂时无法回答您的问题。请稍后再试。',
+      content: '网络错误，无法连接到服务器。请检查网络连接后重试。',
       timestamp: new Date().toISOString(),
       chatId: chatId.value
     };
@@ -115,6 +162,11 @@ const formatTime = (timestamp: string) => {
 
 onMounted(() => {
   loadChatHistory();
+});
+
+// 暴露方法给父组件调用
+defineExpose({
+  handleExternalQuestion
 });
 </script>
 

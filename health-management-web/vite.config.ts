@@ -15,6 +15,10 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      '/ai': {
+        target: 'http://localhost:8080/api',
+        changeOrigin: true,
+      },
     },
   },
   plugins: [
@@ -32,7 +36,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'), // ✅ 定义 @ = src
+      '@': path.resolve(__dirname, './src'),
     },
   },
 })

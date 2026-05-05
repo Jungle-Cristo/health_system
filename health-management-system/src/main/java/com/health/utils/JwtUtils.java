@@ -50,7 +50,11 @@ public class JwtUtils {
     }
 
     public Long extractUserId(String token) {
-        return extractClaim(token, claims -> claims.get("userId", Long.class));
+        try {
+            return extractClaim(token, claims -> claims.get("userId", Long.class));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
@@ -80,7 +84,11 @@ public class JwtUtils {
     }
 
     public String getCurrentToken() {
-        HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return null;
+        }
+        HttpServletRequest request = attributes.getRequest();
         String bearerToken = request.getHeader("Authorization");
         if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
             return bearerToken.substring(7);

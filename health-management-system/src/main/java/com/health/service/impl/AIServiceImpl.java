@@ -1,95 +1,236 @@
 package com.health.service.impl;
 
+import com.health.ai.AIProvider;
+import com.health.ai.AIServiceAdapter;
+import com.health.ai.AIServiceFactory;
+import com.health.ai.RateLimiter;
+import com.health.ai.impl.WenxinAdapter;
 import com.health.entity.AIChatMessage;
+import com.health.exception.AIServiceException;
 import com.health.repository.AIChatMessageRepository;
 import com.health.service.AIService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * AI服务实现类
+ * 支持多种AI服务提供商，集成速率限制和输入验证
+ */
+@Slf4j
 @Service
 public class AIServiceImpl implements AIService {
-    
+
     @Autowired
     private AIChatMessageRepository aiChatMessageRepository;
-    
+
+    @Autowired
+    private AIServiceFactory aiServiceFactory;
+
+    @Autowired
+    private RateLimiter rateLimiter;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * 当前使用的AI服务提供商（支持运行时切换）
+     */
+    private final AtomicReference<AIProvider> currentProvider = new AtomicReference<>();
+
     @Override
     public Map<String, Object> handleChatRequest(Long userId, Map<String, Object> request) {
         String message = (String) request.get("message");
         String chatId = (String) request.get("chatId");
         List<Map<String, Object>> context = (List<Map<String, Object>>) request.get("context");
-        
-        // 保存用户消息
-        AIChatMessage userMessage = new AIChatMessage();
-        userMessage.setUserId(userId);
-        userMessage.setChatId(chatId);
-        userMessage.setRole("user");
-        userMessage.setContent(message);
-        userMessage.setTimestamp(LocalDateTime.now());
-        aiChatMessageRepository.save(userMessage);
-        
-        // 生成AI回复
-        String aiResponse = generateAIResponse(message, context);
-        
-        // 保存AI回复
-        AIChatMessage aiMessage = new AIChatMessage();
-        aiMessage.setUserId(userId);
-        aiMessage.setChatId(chatId);
-        aiMessage.setRole("assistant");
-        aiMessage.setContent(aiResponse);
-        aiMessage.setTimestamp(LocalDateTime.now());
-        aiChatMessageRepository.save(aiMessage);
-        
-        // 构建响应
-        Map<String, Object> response = new HashMap<>();
-        response.put("response", aiResponse);
-        response.put("chatId", chatId);
-        
-        return response;
+
+        try {
+            // 1. 输入验证
+            rateLimiter.validateInput(message);
+
+            // 2. 速率限制检查
+            rateLimiter.checkRateLimit(userId, "127.0.0.1");
+
+            // 3. 保存用户消息
+            AIChatMessage userMessage = new AIChatMessage();
+            userMessage.setUserId(userId);
+            userMessage.setChatId(chatId);
+            userMessage.setRole("user");
+            userMessage.setContent(message);
+            userMessage.setTimestamp(LocalDateTime.now());
+            aiChatMessageRepository.save(userMessage);
+
+            // 4. 生成AI回复（带重试机制）
+            String aiResponse = generateAIResponseWithRetry(message, context);
+
+            // 5. 保存AI回复
+            AIChatMessage aiMessage = new AIChatMessage();
+            aiMessage.setUserId(userId);
+            aiMessage.setChatId(chatId);
+            aiMessage.setRole("assistant");
+            aiMessage.setContent(aiResponse);
+            aiMessage.setTimestamp(LocalDateTime.now());
+            aiChatMessageRepository.save(aiMessage);
+
+            // 6. 构建响应
+            Map<String, Object> response = new HashMap<>();
+            response.put("response", aiResponse);
+            response.put("chatId", chatId);
+            response.put("provider", getCurrentProvider().getName());
+
+            return response;
+
+        } catch (AIServiceException e) {
+            log.error("AI服务处理失败: {}", e.getMessage());
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", e.getErrorCode().name());
+            errorResponse.put("message", e.getMessage());
+            errorResponse.put("retryable", e.isRetryable());
+            return errorResponse;
+        } catch (Exception e) {
+            log.error("AI服务处理异常: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "UNKNOWN");
+            errorResponse.put("message", "服务器内部错误，请稍后重试");
+            errorResponse.put("retryable", true);
+            return errorResponse;
+        }
     }
-    
+
+    /**
+     * 生成AI回复（带重试机制）
+     */
+    private String generateAIResponseWithRetry(String message, List<Map<String, Object>> context) {
+        AIProvider current = getCurrentProvider();
+        AIServiceAdapter adapter = aiServiceFactory.getAdapter(current);
+        int maxRetries = 3;
+        int attempts = 0;
+
+        while (attempts < maxRetries) {
+            try {
+                String contextJson = null;
+                if (context != null && !context.isEmpty()) {
+                    try {
+                        contextJson = objectMapper.writeValueAsString(context);
+                    } catch (Exception e) {
+                        log.warn("序列化上下文失败: {}", e.getMessage());
+                    }
+                }
+
+                log.info("正在调用{}处理请求，消息长度: {} 字符", current.getName(), message.length());
+                String response = adapter.generateResponse(message, contextJson);
+                log.info("{}调用成功，响应长度: {} 字符", current.getName(), response.length());
+                return response;
+
+            } catch (AIServiceException e) {
+                attempts++;
+                log.warn("AI服务调用失败（第{}次尝试），提供商: {}, 错误: {}", attempts, current.getName(), e.getMessage());
+
+                if (!e.isRetryable() || attempts >= maxRetries) {
+                    // 如果是API Key无效或认证失败，不进行降级，直接抛出错误提示用户
+                    if (e.getErrorCode() == AIServiceException.ErrorCode.INVALID_API_KEY) {
+                        log.error("{} API Key无效或已过期，请检查配置", current.getName());
+                        throw new AIServiceException(AIServiceException.ErrorCode.INVALID_API_KEY, 
+                            current.getName() + " API Key无效或已过期，请检查配置文件中的API Key");
+                    }
+                    
+                    // 其他可降级的错误，降级到模拟模式并给出提示
+                    log.warn("降级到模拟模式");
+                    adapter = aiServiceFactory.getAdapter(AIProvider.MOCK);
+                    try {
+                        String mockResponse = adapter.generateResponse(message, null);
+                        // 在响应前添加降级提示
+                        return "[当前" + current.getName() + "服务暂时不可用，已自动切换到模拟模式]\n\n" + mockResponse;
+                    } catch (Exception ex) {
+                        throw new AIServiceException(AIServiceException.ErrorCode.SERVER_ERROR, ex);
+                    }
+                }
+
+                try {
+                    Thread.sleep((long) Math.pow(2, attempts) * 1000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new AIServiceException(AIServiceException.ErrorCode.SERVER_ERROR, ie);
+                }
+            }
+        }
+
+        throw new AIServiceException(AIServiceException.ErrorCode.SERVER_ERROR);
+    }
+
     @Override
     public List<AIChatMessage> getChatHistory(Long userId) {
         return aiChatMessageRepository.findByUserIdOrderByTimestampDesc(userId);
     }
-    
+
     @Override
     public void clearChatHistory(Long userId) {
         aiChatMessageRepository.deleteByUserId(userId);
     }
-    
+
     @Override
     public String generateAIResponse(String message, List<Map<String, Object>> context) {
-        // 简单的模拟AI回复逻辑
-        message = message.toLowerCase();
-        
-        if (message.contains("睡眠")) {
-            return "改善睡眠质量的建议：\n1. 保持规律的作息时间\n2. 睡前避免使用电子设备\n3. 创造安静、舒适的睡眠环境\n4. 避免睡前饮用咖啡或茶\n5. 适当进行放松活动，如冥想或深呼吸\n\n如果您有严重的睡眠问题，建议咨询专业医生。";
-        } else if (message.contains("运动")) {
-            return "适合您的运动计划建议：\n1. 每周至少进行150分钟中等强度有氧运动\n2. 每周进行2-3次力量训练\n3. 每天保持适当的身体活动，如步行\n4. 根据个人健康状况选择适合的运动方式\n5. 逐渐增加运动强度，避免过度训练\n\n请根据您的身体状况和医生建议调整运动计划。";
-        } else if (message.contains("血压")) {
-            return "控制血压的建议：\n1. 保持健康的饮食习惯，减少盐的摄入\n2. 定期进行身体活动\n3. 保持健康的体重\n4. 限制酒精摄入\n5. 管理压力\n6. 按照医生建议服用降压药物\n\n请定期监测血压，并咨询医生获取个性化建议。";
-        } else if (message.contains("饮食")) {
-            return "健康饮食建议：\n1. 多吃蔬菜水果，每天摄入5份以上\n2. 选择全谷物食品\n3. 适量摄入蛋白质，如瘦肉、鱼类、豆类\n4. 限制 saturated fat和trans fat的摄入\n5. 控制糖分和盐分的摄入\n6. 保持充足的水分摄入\n\n请根据个人健康状况调整饮食计划。";
-        } else if (message.contains("压力")) {
-            return "减轻压力的建议：\n1. 进行深呼吸和冥想练习\n2. 保持规律的运动\n3. 确保充足的睡眠\n4. 与朋友和家人保持联系\n5. 培养兴趣爱好\n6. 学习时间管理技巧\n7. 寻求专业帮助（如心理咨询）\n\n如果您感到持续的压力或焦虑，建议咨询专业人士。";
-        } else if (message.contains("心率")) {
-            return "心率异常的建议：\n1. 休息并监测心率变化\n2. 避免咖啡因和其他兴奋剂\n3. 保持充足的水分摄入\n4. 避免过度运动\n5. 如果心率持续异常或伴有胸痛、呼吸困难等症状，请立即就医\n\n正常静息心率范围通常为60-100次/分钟，但这可能因年龄和健康状况而异。";
-        } else if (message.contains("体重")) {
-            return "健康体重管理建议：\n1. 保持均衡的饮食，控制热量摄入\n2. 增加身体活动，每天至少30分钟中等强度运动\n3. 保持规律的作息时间\n4. 避免情绪化进食\n5. 设定合理的体重目标，每周减重0.5-1公斤为宜\n6. 定期监测体重变化\n\n请根据个人健康状况调整体重管理计划，如有需要咨询医生或营养师。";
-        } else if (message.contains("血糖")) {
-            return "血糖管理建议：\n1. 控制碳水化合物的摄入，选择低GI食物\n2. 保持规律的饮食时间\n3. 适量进行有氧运动\n4. 按照医生建议监测血糖水平\n5. 遵循医生的药物治疗方案\n6. 保持健康的体重\n\n如果您有糖尿病或血糖异常，请定期咨询医生获取个性化建议。";
-        } else if (message.contains("你好") || message.contains("嗨") || message.contains("hello")) {
-            return "你好！我是您的智能健康助手。有什么健康问题可以帮您解答吗？";
-        } else if (message.contains("谢谢") || message.contains("thank")) {
-            return "不客气！如果您有任何其他健康问题，随时可以问我。";
-        } else {
-            return "感谢您的咨询。作为智能健康助手，我可以回答关于睡眠、运动、饮食、压力管理、血压、心率、体重和血糖等健康问题。请问您有什么具体的健康问题需要了解？\n\n免责声明：我的建议仅供参考，不能替代专业医疗建议。如有健康问题，请咨询专业医生。";
+        try {
+            AIServiceAdapter adapter = aiServiceFactory.getAdapter(getCurrentProvider());
+            String contextJson = null;
+            if (context != null && !context.isEmpty()) {
+                contextJson = objectMapper.writeValueAsString(context);
+            }
+            return adapter.generateResponse(message, contextJson);
+        } catch (AIServiceException e) {
+            log.error("AI回复生成失败: {}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("AI回复生成异常: {}", e.getMessage(), e);
+            throw new AIServiceException(AIServiceException.ErrorCode.UNKNOWN, e);
         }
+    }
+
+    @Override
+    public AIProvider getCurrentProvider() {
+        AIProvider provider = currentProvider.get();
+        if (provider == null) {
+            provider = aiServiceFactory.getDefaultProvider();
+            currentProvider.set(provider);
+        }
+
+        if (!aiServiceFactory.isProviderAvailable(provider)) {
+            log.warn("配置的提供商 {} 不可用，降级到MOCK模式", provider.getName());
+            return AIProvider.MOCK;
+        }
+
+        return provider;
+    }
+
+    @Override
+    public void switchProvider(AIProvider provider) {
+        AIServiceAdapter adapter = aiServiceFactory.getAdapter(provider);
+        
+        // 检查适配器是否可用
+        if (!adapter.isAvailable()) {
+            log.warn("AI服务提供商 {} 不可用，保持当前提供商", provider.getName());
+            throw new IllegalArgumentException("AI服务提供商 " + provider.getName() + " 不可用");
+        }
+        
+        // 对于文心一言，检查配置是否完整（根据千帆API文档，只需要API Key）
+        if (provider == AIProvider.BAIDU_WENXIN) {
+            WenxinAdapter wenxinAdapter = (WenxinAdapter) adapter;
+            if (!wenxinAdapter.hasCompleteConfig()) {
+                log.warn("文心一言API Key未配置");
+                throw new IllegalArgumentException("文心一言API Key未配置，请在配置文件中设置WENXIN_API_KEY环境变量");
+            }
+        }
+        
+        currentProvider.set(provider);
+        log.info("AI服务提供商已切换为: {}", provider.getName());
+    }
+
+    @Override
+    public List<AIProvider> getAvailableProviders() {
+        return aiServiceFactory.getAvailableProviders();
     }
 }

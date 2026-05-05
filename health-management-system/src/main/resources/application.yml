@@ -27,3 +27,34 @@ server:
 jwt:
   secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
   expiration: 86400000
+
+# AI服务配置
+ai:
+  # 默认AI服务提供商: mock, openai, baidu_wenxin
+  default-provider: ${AI_DEFAULT_PROVIDER:baidu_wenxin}
+  # 请求超时时间（毫秒）
+  timeout: 30000
+  # 最大重试次数
+  max-retries: 3
+  # 速率限制：每分钟最大请求数
+  rate-limit-per-minute: 30
+  # 最大输入长度
+  max-input-length: 2000
+  # 最大输出长度
+  max-output-length: 4000
+  
+  # OpenAI配置
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: https://api.openai.com/v1
+    model: gpt-3.5-turbo
+    temperature: 0.7
+  
+  # 百度千帆（文心一言）配置
+  # 根据千帆API文档：https://cloud.baidu.com/doc/WENXINWORKSHOP/s/jlil56u11
+  # 认证方式：Bearer API Key（无需Secret Key）
+  wenxin:
+    api-key: ${WENXIN_API_KEY:bce-v3/ALTAK-p9LIy4RuWhf783BOFfSiA/27c64a5030b7fb1dd94d5d1c2dee480101b99d26}
+    base-url: https://qianfan.baidubce.com/v2/chat/completions
+    model: ernie-4.0-turbo-BK
+    temperature: 0.7

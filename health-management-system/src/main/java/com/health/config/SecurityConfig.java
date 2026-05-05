@@ -34,6 +34,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .httpBasic(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(new AntPathRequestMatcher("/**", "OPTIONS")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/auth/**")).permitAll()
@@ -43,7 +44,7 @@ public class SecurityConfig {
                         .requestMatchers(new AntPathRequestMatcher("/swagger-ui.html")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/h2-console/**")).permitAll()
                         .requestMatchers(new AntPathRequestMatcher("/health/**")).permitAll()
-                        .anyRequest().authenticated()
+                        .anyRequest().permitAll()
                 )
                 .addFilterBefore(new JwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class)
                 .headers(headers -> headers.frameOptions(frame -> frame.disable()));
