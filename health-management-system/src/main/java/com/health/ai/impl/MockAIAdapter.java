@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -205,6 +206,29 @@ public class MockAIAdapter implements AIServiceAdapter {
     @Override
     public boolean isAvailable() {
         return true;
+    }
+
+    @Override
+    public void generateStreamResponse(String message, String context, Consumer<String> chunkCallback) throws AIServiceException {
+        log.info("使用模拟AI服务处理流式请求");
+        
+        String fullResponse = generateResponse(message, context);
+        
+        // 模拟流式输出，逐段发送
+        int chunkSize = 50;
+        for (int i = 0; i < fullResponse.length(); i += chunkSize) {
+            int end = Math.min(i + chunkSize, fullResponse.length());
+            String chunk = fullResponse.substring(i, end);
+            chunkCallback.accept(chunk);
+            
+            // 模拟网络延迟，使流式效果更明显
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
     }
 
     private static class HealthStat {

@@ -5,6 +5,7 @@ import com.health.entity.AIChatMessage;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * AI服务接口
@@ -12,12 +13,21 @@ import java.util.Map;
 public interface AIService {
     
     /**
-     * 处理AI聊天请求
+     * 处理AI聊天请求（同步模式）
      * @param userId 用户ID
      * @param request 请求参数，包含message、chatId和context
      * @return AI回复
      */
     Map<String, Object> handleChatRequest(Long userId, Map<String, Object> request);
+    
+    /**
+     * 处理AI聊天请求（流式模式）
+     * @param userId 用户ID
+     * @param request 请求参数，包含message、chatId和context
+     * @param chunkCallback 流式数据回调
+     * @return chatId
+     */
+    String handleStreamChatRequest(Long userId, Map<String, Object> request, Consumer<String> chunkCallback);
     
     /**
      * 获取用户的聊天历史
@@ -33,7 +43,7 @@ public interface AIService {
     void clearChatHistory(Long userId);
     
     /**
-     * 生成AI回复
+     * 生成AI回复（同步模式）
      * @param message 用户消息
      * @param context 上下文
      * @return AI回复内容

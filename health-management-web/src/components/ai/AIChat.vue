@@ -1,9 +1,25 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue';
 import { MessageSquare, Send, Loader2, Trash2, Clock, User, Bot, HelpCircle } from 'lucide-vue-next';
+import { marked } from 'marked';
 import GlassCard from '../common/GlassCard.vue';
-import { getAIResponse, getChatHistory, type AIChatMessage } from '../../api/ai';
+import { getAIResponse, getAIStreamResponse, getChatHistory, type AIChatMessage } from '../../api/ai';
 import { formatTime } from '../../lib/utils';
+
+marked.setOptions({
+  breaks: true,
+  gfm: true
+});
+
+const renderMarkdown = (content: string): string => {
+  try {
+    return marked.parse(content) as string;
+  } catch {
+    return content;
+  }
+};
+
+const STREAM_DELAY = 300; // 每行输出延迟约0.3秒
 
 const props = defineProps<{
   userId?: number;
@@ -38,11 +54,16 @@ const loadChatHistory = async () => {
   }
 };
 
-// 发送消息
+const streamingMessageId = ref<string | null>(null);
+const streamingContent = ref('');
+
+const delay = (ms: number): Promise<void> => {
+  return new Promise(resolve => setTimeout(resolve, ms));
+};
+
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || loading.value) return;
   
-  // 确保messages.value是数组
   if (!Array.isArray(messages.value)) {
     messages.value = [];
   }
@@ -50,7 +71,6 @@ const sendMessage = async () => {
   const message = inputMessage.value.trim();
   inputMessage.value = '';
   
-  // 添加用户消息
   const userMessage: AIChatMessage = {
     id: `msg_${Date.now()}`,
     role: 'user',
@@ -62,79 +82,60 @@ const sendMessage = async () => {
   messages.value.push(userMessage);
   loading.value = true;
   
+  const aiMessageId = `msg_${Date.now() + 1}`;
+  streamingMessageId.value = aiMessageId;
+  streamingContent.value = '';
+  
+  const aiMessage: AIChatMessage = {
+    id: aiMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: new Date().toISOString(),
+    chatId: chatId.value
+  };
+  
+  messages.value.push(aiMessage);
+  
   try {
-    // 调用AI接口获取回复
-    const response = await getAIResponse({
+    await getAIStreamResponse({
       message,
       chatId: chatId.value,
-      context: messages.value.slice(-5) // 发送最近5条消息作为上下文
-    });
-    
-    // 检查是否有错误
-    if (response.error) {
-      // 处理后端返回的错误
-      let errorContent = '抱歉，处理您的请求时出现错误。';
+      context: messages.value.slice(-6)
+    }, async (chunk) => {
+      streamingContent.value += chunk;
       
-      switch (response.error) {
-        case 'INVALID_INPUT':
-          errorContent = '输入内容无效，请检查您的输入。';
-          break;
-        case 'RATE_LIMITED':
-          errorContent = '请求过于频繁，请稍后再试。';
-          break;
-        case 'INVALID_API_KEY':
-          errorContent = 'AI服务配置错误，请联系管理员。';
-          break;
-        case 'CONTENT_FILTERED':
-          errorContent = '您的请求内容不符合安全规范。';
-          break;
-        case 'TIMEOUT':
-          errorContent = '请求超时，请稍后再试。';
-          break;
-        case 'SERVICE_UNAVAILABLE':
-          errorContent = 'AI服务暂时不可用，请稍后再试。';
-          break;
-        default:
-          errorContent = response.message || '抱歉，我暂时无法回答您的问题。';
+      const index = messages.value.findIndex(m => m.id === aiMessageId);
+      if (index !== -1) {
+        messages.value[index].content = streamingContent.value;
       }
       
-      // 添加错误消息
-      const errorMessage: AIChatMessage = {
-        id: `msg_${Date.now() + 1}`,
-        role: 'assistant',
-        content: errorContent,
-        timestamp: new Date().toISOString(),
-        chatId: chatId.value
-      };
-      
-      messages.value.push(errorMessage);
-    } else {
-      // 添加AI回复
-      const aiMessage: AIChatMessage = {
-        id: `msg_${Date.now() + 1}`,
-        role: 'assistant',
-        content: response.response,
-        timestamp: new Date().toISOString(),
-        chatId: chatId.value
-      };
-      
-      messages.value.push(aiMessage);
-    }
+      await delay(STREAM_DELAY);
+    }, () => {
+      streamingMessageId.value = null;
+    }, (error) => {
+      console.error('流式响应错误:', error);
+      streamingMessageId.value = null;
+    });
+    
   } catch (error) {
     console.error('获取AI回复失败:', error);
     
-    // 添加错误消息
-    const errorMessage: AIChatMessage = {
-      id: `msg_${Date.now() + 1}`,
-      role: 'assistant',
-      content: '网络错误，无法连接到服务器。请检查网络连接后重试。',
-      timestamp: new Date().toISOString(),
-      chatId: chatId.value
-    };
-    
-    messages.value.push(errorMessage);
+    const index = messages.value.findIndex(m => m.id === aiMessageId);
+    if (index !== -1) {
+      messages.value[index].content = '网络错误，无法连接到服务器。请检查网络连接后重试。';
+    } else {
+      const errorMessage: AIChatMessage = {
+        id: `msg_${Date.now() + 2}`,
+        role: 'assistant',
+        content: '网络错误，无法连接到服务器。请检查网络连接后重试。',
+        timestamp: new Date().toISOString(),
+        chatId: chatId.value
+      };
+      messages.value.push(errorMessage);
+    }
   } finally {
     loading.value = false;
+    streamingMessageId.value = null;
   }
 };
 
@@ -217,7 +218,8 @@ defineExpose({
               <component :is="message.role === 'user' ? User : Bot" class="w-4 h-4 text-white" />
             </div>
             <div class="flex-1">
-              <p class="whitespace-pre-wrap">{{ message.content }}</p>
+              <p class="whitespace-pre-wrap" v-if="message.role === 'user'">{{ message.content }}</p>
+              <div class="whitespace-pre-wrap markdown-content" v-else v-html="renderMarkdown(message.content)"></div>
               <div class="flex items-center gap-1 mt-2 text-xs text-gray-400">
                 <Clock class="w-3 h-3" />
                 <span>{{ formatTime(message.timestamp) }}</span>
@@ -272,5 +274,71 @@ div::-webkit-scrollbar-thumb {
 
 div::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+/* Markdown样式 */
+.markdown-content {
+  line-height: 1.6;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  color: #e0e7ff;
+}
+
+.markdown-content h1 { font-size: 1.5em; }
+.markdown-content h2 { font-size: 1.3em; }
+.markdown-content h3 { font-size: 1.1em; }
+
+.markdown-content p {
+  margin-bottom: 0.8em;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.8em;
+}
+
+.markdown-content li {
+  margin-bottom: 0.3em;
+}
+
+.markdown-content strong {
+  font-weight: 600;
+  color: #c7d2fe;
+}
+
+.markdown-content em {
+  font-style: italic;
+}
+
+.markdown-content code {
+  background-color: rgba(139, 92, 246, 0.2);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: #c4b5fd;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid #8b5cf6;
+  padding-left: 1em;
+  margin: 0.8em 0;
+  color: #a5b4fc;
+  font-style: italic;
+}
+
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 1em 0;
 }
 </style>

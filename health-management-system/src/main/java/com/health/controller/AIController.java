@@ -6,13 +6,19 @@ import com.health.service.AIService;
 import com.health.utils.JwtUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -25,6 +31,8 @@ public class AIController {
 
     @Autowired
     private JwtUtils jwtUtils;
+
+    private final ExecutorService executorService = Executors.newCachedThreadPool();
 
     private Long getCurrentUserId() {
         Long userId = jwtUtils.getCurrentUserId();
@@ -84,6 +92,44 @@ public class AIController {
             errorResponse.put("message", "服务器内部错误");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
+    }
+    
+    /**
+     * 处理AI聊天请求（流式模式）
+     * @param request 请求参数
+     * @return SSE流式响应
+     */
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamChat(@RequestBody Map<String, Object> request) {
+        SseEmitter emitter = new SseEmitter(120000L); // 2分钟超时
+        
+        executorService.execute(() -> {
+            try {
+                Long userId = getCurrentUserId();
+                
+                aiService.handleStreamChatRequest(userId, request, chunk -> {
+                    try {
+                        emitter.send(SseEmitter.event()
+                                .name("message")
+                                .data(chunk));
+                    } catch (IOException e) {
+                        log.warn("SSE发送失败: {}", e.getMessage());
+                    }
+                });
+                
+                emitter.send(SseEmitter.event()
+                        .name("complete")
+                        .data("done"));
+                
+                emitter.complete();
+                
+            } catch (Exception e) {
+                log.error("AI流式聊天错误: {}", e.getMessage(), e);
+                emitter.completeWithError(e);
+            }
+        });
+        
+        return emitter;
     }
     
     /**

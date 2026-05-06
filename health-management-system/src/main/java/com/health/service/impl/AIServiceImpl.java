@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * AI服务实现类
@@ -59,6 +60,11 @@ public class AIServiceImpl implements AIService {
         List<Map<String, Object>> context = (List<Map<String, Object>>) request.get("context");
 
         try {
+            // 如果 chatId 为空，自动生成一个唯一的 chatId
+            if (chatId == null || chatId.isEmpty()) {
+                chatId = UUID.randomUUID().toString();
+            }
+
             // 1. 输入验证
             rateLimiter.validateInput(message);
 
@@ -260,6 +266,77 @@ public class AIServiceImpl implements AIService {
             }
         } catch (Exception ignored) {}
         return "127.0.0.1";
+    }
+
+    @Override
+    public String handleStreamChatRequest(Long userId, Map<String, Object> request, Consumer<String> chunkCallback) {
+        String message = (String) request.get("message");
+        String chatId = (String) request.get("chatId");
+        List<Map<String, Object>> context = (List<Map<String, Object>>) request.get("context");
+
+        // 如果 chatId 为空，自动生成一个唯一的 chatId
+        if (chatId == null || chatId.isEmpty()) {
+            chatId = UUID.randomUUID().toString();
+        }
+
+        try {
+            // 1. 输入验证
+            rateLimiter.validateInput(message);
+
+            // 2. 速率限制检查
+            String clientIp = getClientIp();
+            rateLimiter.checkRateLimit(userId, clientIp);
+
+            // 3. 保存用户消息
+            AIChatMessage userMessage = new AIChatMessage();
+            userMessage.setUserId(userId);
+            userMessage.setChatId(chatId);
+            userMessage.setRole("user");
+            userMessage.setContent(message);
+            userMessage.setTimestamp(LocalDateTime.now());
+            aiChatMessageRepository.save(userMessage);
+
+            // 4. 注入用户健康数据上下文
+            String enrichedMessage = enrichWithHealthData(userId, message);
+            
+            // 5. 生成流式AI回复
+            AIProvider current = getCurrentProvider();
+            AIServiceAdapter adapter = aiServiceFactory.getAdapter(current);
+            
+            // 将 context 转换为 JSON 字符串
+            String contextJson = null;
+            if (context != null && !context.isEmpty()) {
+                try {
+                    contextJson = objectMapper.writeValueAsString(context);
+                } catch (Exception e) {
+                    log.warn("序列化上下文失败: {}", e.getMessage());
+                }
+            }
+            
+            StringBuilder fullResponse = new StringBuilder();
+            adapter.generateStreamResponse(enrichedMessage, contextJson, chunk -> {
+                fullResponse.append(chunk);
+                chunkCallback.accept(chunk);
+            });
+
+            // 6. 保存AI回复
+            AIChatMessage aiMessage = new AIChatMessage();
+            aiMessage.setUserId(userId);
+            aiMessage.setChatId(chatId);
+            aiMessage.setRole("assistant");
+            aiMessage.setContent(fullResponse.toString());
+            aiMessage.setTimestamp(LocalDateTime.now());
+            aiChatMessageRepository.save(aiMessage);
+
+            return chatId;
+
+        } catch (AIServiceException e) {
+            log.error("AI服务流式处理失败: {}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("AI服务流式处理异常: {}", e.getMessage(), e);
+            throw new AIServiceException(AIServiceException.ErrorCode.UNKNOWN, e);
+        }
     }
 
     @Override
