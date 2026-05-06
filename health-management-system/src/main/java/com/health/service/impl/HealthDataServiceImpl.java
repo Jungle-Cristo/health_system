@@ -8,7 +8,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.health.service.HealthDataService;
 import com.health.utils.JwtUtils;
-import com.health.utils.RedisUtils;
+import com.health.utils.CacheUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class HealthDataServiceImpl implements HealthDataService {
 
@@ -30,7 +32,7 @@ public class HealthDataServiceImpl implements HealthDataService {
     private JwtUtils jwtUtils;
 
     @Autowired
-    private RedisUtils redisUtils;
+    private CacheUtils redisUtils;
 
     private static final String HEALTH_DATA_CACHE_PREFIX = "health:data:";
     private static final int CACHE_EXPIRATION = 5; // 5 minutes
@@ -38,7 +40,7 @@ public class HealthDataServiceImpl implements HealthDataService {
     @Override
     public HealthDataResponse addHealthData(HealthDataRequest request) {
         Long userId = getCurrentUserId();
-        System.out.println("添加健康数据，用户ID: " + userId + "，类型: " + request.getType() + "，值: " + request.getValue());
+        log.info("添加健康数据，用户ID: " + userId + "，类型: " + request.getType() + "，值: " + request.getValue());
         HealthData healthData = new HealthData();
         healthData.setUserId(userId);
         healthData.setType(request.getType());
@@ -59,7 +61,7 @@ public class HealthDataServiceImpl implements HealthDataService {
             } catch (Exception e) {
                 // 如果解析失败，使用当前时间
                 healthData.setRecordDate(LocalDateTime.now());
-                System.out.println("日期解析错误: " + e.getMessage());
+                log.info("日期解析错误: " + e.getMessage());
             }
         } else {
             // 如果recordDate为null，使用当前时间
@@ -67,7 +69,7 @@ public class HealthDataServiceImpl implements HealthDataService {
         }
         
         healthData = healthDataRepository.save(healthData);
-        System.out.println("健康数据保存成功，ID: " + healthData.getId());
+        log.info("健康数据保存成功，ID: " + healthData.getId());
         
         // Clear cache
         clearHealthDataCache(userId, request.getType());
@@ -78,7 +80,7 @@ public class HealthDataServiceImpl implements HealthDataService {
     @Override
     public List<HealthDataResponse> getHealthDataList(String type, String startDate, String endDate) {
         Long userId = getCurrentUserId();
-        System.out.println("获取健康数据列表，用户ID: " + userId + "，类型: " + type);
+        log.info("获取健康数据列表，用户ID: " + userId + "，类型: " + type);
         // 处理type参数，当type为空字符串时，视为null
         if (type != null && type.isEmpty()) {
             type = null;
@@ -93,16 +95,16 @@ public class HealthDataServiceImpl implements HealthDataService {
                 try {
                     ObjectMapper objectMapper = new ObjectMapper();
                     List<HealthDataResponse> cachedResponse = objectMapper.readValue(cachedData, new TypeReference<List<HealthDataResponse>>() {});
-                    System.out.println("从缓存获取健康数据，数量: " + cachedResponse.size());
+                    log.info("从缓存获取健康数据，数量: " + cachedResponse.size());
                     return cachedResponse;
                 } catch (Exception e) {
                     // Ignore parsing error, fall back to database
-                    System.out.println("缓存解析错误: " + e.getMessage());
+                    log.info("缓存解析错误: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
             // Ignore cache error, fall back to database
-            System.out.println("缓存访问错误: " + e.getMessage());
+            log.info("缓存访问错误: " + e.getMessage());
         }
         
         List<HealthData> healthDataList = new ArrayList<>();
@@ -112,36 +114,36 @@ public class HealthDataServiceImpl implements HealthDataService {
                 LocalDateTime end = LocalDateTime.parse(endDate, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                 if (type != null) {
                     healthDataList = healthDataRepository.findByUserIdAndTypeAndRecordDateBetween(userId, type, start, end);
-                    System.out.println("从数据库获取指定类型健康数据，数量: " + healthDataList.size());
+                    log.info("从数据库获取指定类型健康数据，数量: " + healthDataList.size());
                 } else {
                     healthDataList = healthDataRepository.findByUserIdAndRecordDateBetween(userId, start, end);
-                    System.out.println("从数据库获取所有类型健康数据，数量: " + healthDataList.size());
+                    log.info("从数据库获取所有类型健康数据，数量: " + healthDataList.size());
                 }
             } else {
                 if (type != null) {
                     healthDataList = healthDataRepository.findByUserIdAndTypeOrderByRecordDateDesc(userId, type);
-                    System.out.println("从数据库获取指定类型健康数据，数量: " + healthDataList.size());
+                    log.info("从数据库获取指定类型健康数据，数量: " + healthDataList.size());
                 } else {
                     healthDataList = healthDataRepository.findByUserIdOrderByRecordDateDesc(userId);
-                    System.out.println("从数据库获取所有类型健康数据，数量: " + healthDataList.size());
+                    log.info("从数据库获取所有类型健康数据，数量: " + healthDataList.size());
                 }
             }
         } catch (Exception e) {
             // If any error occurs, log it and use the empty list
-            System.out.println("数据库查询错误: " + e.getMessage());
+            log.info("数据库查询错误: " + e.getMessage());
         }
         
         List<HealthDataResponse> responseList = healthDataList.stream().map(this::convertToResponse).collect(Collectors.toList());
-        System.out.println("转换后健康数据数量: " + responseList.size());
+        log.info("转换后健康数据数量: " + responseList.size());
         
         // Cache the result
         try {
             ObjectMapper objectMapper = new ObjectMapper();
             redisUtils.set(cacheKey, objectMapper.writeValueAsString(responseList), CACHE_EXPIRATION, TimeUnit.MINUTES);
-            System.out.println("缓存健康数据，键: " + cacheKey);
+            log.info("缓存健康数据，键: " + cacheKey);
         } catch (Exception e) {
             // Ignore caching error
-            System.out.println("缓存写入错误: " + e.getMessage());
+            log.info("缓存写入错误: " + e.getMessage());
         }
         
         return responseList;
@@ -179,18 +181,18 @@ public class HealthDataServiceImpl implements HealthDataService {
         String cacheKey = HEALTH_DATA_CACHE_PREFIX + userId + ":" + typeKey + ":all:all";
         try {
             redisUtils.delete(cacheKey);
-            System.out.println("清除缓存，键: " + cacheKey);
+            log.info("清除缓存，键: " + cacheKey);
         } catch (Exception e) {
-            System.out.println("清除缓存错误: " + e.getMessage());
+            log.info("清除缓存错误: " + e.getMessage());
         }
         
         // 清除所有类型的缓存
         String allCacheKey = HEALTH_DATA_CACHE_PREFIX + userId + ":all:all:all";
         try {
             redisUtils.delete(allCacheKey);
-            System.out.println("清除缓存，键: " + allCacheKey);
+            log.info("清除缓存，键: " + allCacheKey);
         } catch (Exception e) {
-            System.out.println("清除缓存错误: " + e.getMessage());
+            log.info("清除缓存错误: " + e.getMessage());
         }
     }
 

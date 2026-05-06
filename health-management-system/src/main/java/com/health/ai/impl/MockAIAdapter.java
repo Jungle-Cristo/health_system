@@ -6,26 +6,178 @@ import com.health.exception.AIServiceException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-/**
- * 模拟AI服务适配器
- * 保持原有基于关键词匹配的回复逻辑，用于演示和测试
- */
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 @Slf4j
 @Component
 public class MockAIAdapter implements AIServiceAdapter {
-    
+
     @Override
     public AIProvider getProvider() {
         return AIProvider.MOCK;
     }
-    
+
     @Override
     public String generateResponse(String message, String context) throws AIServiceException {
-        log.info("使用模拟AI服务处理请求: {}", message);
-        
-        // 简单的模拟AI回复逻辑（与原实现保持一致）
-        String lowerMessage = message.toLowerCase();
-        
+        log.info("使用模拟AI服务处理请求，消息长度: {}", message.length());
+
+        // 检查是否包含健康数据摘要，如果有则解析并给出个性化回复
+        if (message.contains("[用户近期健康数据摘要]")) {
+            return generatePersonalizedResponse(message);
+        }
+
+        // 回退到原有关键词匹配逻辑
+        return keywordResponse(message.toLowerCase());
+    }
+
+    private String generatePersonalizedResponse(String message) {
+        Map<String, HealthStat> stats = parseHealthData(message);
+
+        int questionStart = message.indexOf("[用户问题]");
+        String userQuestion = questionStart >= 0 ? message.substring(questionStart + 7).trim() : message;
+        userQuestion = userQuestion.toLowerCase();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("根据您过去30天的健康数据，为您进行个性化分析：\n\n");
+
+        // 数据概览
+        sb.append("【数据概览】\n");
+        for (Map.Entry<String, HealthStat> e : stats.entrySet()) {
+            HealthStat s = e.getValue();
+            sb.append(String.format("· %s: 最新%.1f%s，平均%.1f%s",
+                    s.label, s.latest, s.unit, s.avg, s.unit));
+            if (s.anomaly != null) {
+                sb.append(" ⚠").append(s.anomaly);
+            }
+            sb.append("\n");
+        }
+
+        // 异常分析
+        boolean hasAnomaly = stats.values().stream().anyMatch(s -> s.anomaly != null);
+        if (hasAnomaly) {
+            sb.append("\n【异常提醒】\n");
+            for (Map.Entry<String, HealthStat> e : stats.entrySet()) {
+                HealthStat s = e.getValue();
+                if (s.anomaly != null) {
+                    sb.append("· ").append(s.label).append(": ").append(s.anomaly).append("\n");
+                }
+            }
+
+            // 针对具体问题的回答
+            if (userQuestion.contains("血糖") || userQuestion.contains("糖")) {
+                HealthStat bs = stats.get("血糖");
+                if (bs != null && bs.anomaly != null) {
+                    sb.append("\n【血糖专项分析】\n");
+                    sb.append("您近日血糖出现明显异常，最高达").append(String.format("%.1f", bs.max))
+                      .append(bs.unit).append("，远超正常范围(3.9-6.1 mmol/L)。\n");
+                    sb.append("建议：\n");
+                    sb.append("1. 立即就医进行糖耐量检查和HbA1c检测\n");
+                    sb.append("2. 控制碳水化合物摄入，避免高GI食物\n");
+                    sb.append("3. 增加餐后运动\n");
+                    sb.append("4. 每天监测空腹和餐后血糖\n");
+                    sb.append("5. 如确诊糖尿病，需按医嘱用药\n");
+                }
+            } else if (userQuestion.contains("心率") || userQuestion.contains("心脏")) {
+                HealthStat hr = stats.get("心率");
+                if (hr != null && hr.anomaly != null) {
+                    sb.append("\n【心率专项分析】\n");
+                    sb.append("您在特定时期心率偏高，最高").append(String.format("%.0f", hr.max))
+                      .append("bpm，超出正常静息范围(60-100 bpm)。\n");
+                    sb.append("建议注意休息，避免剧烈运动，如持续异常请就医。\n");
+                }
+            }
+        } else {
+            sb.append("\n【总体评估】\n您的各项健康指标整体处于正常范围，请继续保持良好的生活习惯。\n");
+        }
+
+        // 针对用户具体问题的个性化回答
+        if (userQuestion.contains("怎么样") || userQuestion.contains("状况") || userQuestion.contains("健康")) {
+            sb.append("\n综合来看，");
+            if (hasAnomaly) {
+                sb.append("您存在一些需要关注的健康指标，建议针对异常项及时就医检查。");
+            } else {
+                sb.append("您的健康状况良好，各项指标均在正常范围内。");
+            }
+        }
+
+        sb.append("\n\n---\n以上分析基于您录入的健康数据，仅供参考，不能替代专业医疗诊断。如有不适请及时就医。");
+
+        return sb.toString();
+    }
+
+    private Map<String, HealthStat> parseHealthData(String message) {
+        Map<String, HealthStat> stats = new LinkedHashMap<>();
+
+        Pattern p = Pattern.compile(
+                "- (\\S+): 最新=([\\d.]+)(\\S+), 平均=([\\d.]+)(\\S+), 最高=([\\d.]+), 最低=([\\d.]+)");
+
+        String[] lines = message.split("\n");
+        for (String line : lines) {
+            Matcher m = p.matcher(line);
+            if (m.find()) {
+                String type = m.group(1);
+                double latest = Double.parseDouble(m.group(2));
+                String unit = m.group(3);
+                double avg = Double.parseDouble(m.group(4));
+                double max = Double.parseDouble(m.group(6));
+                double min = Double.parseDouble(m.group(7));
+
+                HealthStat stat = new HealthStat(type, latest, avg, max, min, unit);
+
+                // 异常判断
+                switch (type) {
+                    case "步数":
+                        if (min < 3000) stat.anomaly = "存在运动量严重不足的时期(最低仅" + (int)min + "步/天)";
+                        break;
+                    case "心率":
+                        if (max > 100) stat.anomaly = "存在心率过快的时期(最高" + (int)max + "bpm)，可能与发烧或紧张有关";
+                        break;
+                    case "睡眠时长":
+                        if (min < 5) stat.anomaly = "存在严重睡眠不足的时期(最低仅" + String.format("%.1f", min) + "小时)";
+                        break;
+                    case "血压":
+                        if (max > 140) stat.anomaly = "存在血压偏高的时期(最高" + (int)max + "mmHg)，需关注心血管风险";
+                        break;
+                    case "血糖":
+                        if (max > 7.0) stat.anomaly = "存在血糖显著升高的时期(最高" + String.format("%.1f", max) + "mmol/L)，需警惕糖尿病风险";
+                        break;
+                    case "体重":
+                        if (Math.abs(max - min) > 2) stat.anomaly = "体重波动较大";
+                        break;
+                }
+
+                stats.put(type, stat);
+            }
+        }
+
+        // 如果没有解析到统计数据，从消息中尝试提取键值对
+        if (stats.isEmpty()) {
+            stats.putAll(parseSimpleFormat(message));
+        }
+
+        return stats;
+    }
+
+    private Map<String, HealthStat> parseSimpleFormat(String message) {
+        Map<String, HealthStat> result = new LinkedHashMap<>();
+        // simplify: try to find <name>: <number><unit> patterns
+        Pattern p = Pattern.compile("(\\S+):\\s*([\\d.]+)\\s*(\\S*)");
+        Matcher m = p.matcher(message);
+        while (m.find()) {
+            String name = m.group(1);
+            double val = Double.parseDouble(m.group(2));
+            String unit = m.group(3);
+            if (!result.containsKey(name)) {
+                result.put(name, new HealthStat(name, val, val, val, val, unit));
+            }
+        }
+        return result;
+    }
+
+    private String keywordResponse(String lowerMessage) {
         if (lowerMessage.contains("睡眠")) {
             return "改善睡眠质量的建议：\n1. 保持规律的作息时间\n2. 睡前避免使用电子设备\n3. 创造安静、舒适的睡眠环境\n4. 避免睡前饮用咖啡或茶\n5. 适当进行放松活动，如冥想或深呼吸\n\n如果您有严重的睡眠问题，建议咨询专业医生。";
         } else if (lowerMessage.contains("运动")) {
@@ -46,13 +198,28 @@ public class MockAIAdapter implements AIServiceAdapter {
             return "你好！我是您的智能健康助手。有什么健康问题可以帮您解答吗？";
         } else if (lowerMessage.contains("谢谢") || lowerMessage.contains("thank")) {
             return "不客气！如果您有任何其他健康问题，随时可以问我。";
-        } else {
-            return "感谢您的咨询。作为智能健康助手，我可以回答关于睡眠、运动、饮食、压力管理、血压、心率、体重和血糖等健康问题。请问您有什么具体的健康问题需要了解？\n\n免责声明：我的建议仅供参考，不能替代专业医疗建议。如有健康问题，请咨询专业医生。";
         }
+        return "感谢您的咨询。作为智能健康助手，我可以回答关于睡眠、运动、饮食、压力管理、血压、心率、体重和血糖等健康问题。请问您有什么具体的健康问题需要了解？\n\n免责声明：我的建议仅供参考，不能替代专业医疗建议。如有健康问题，请咨询专业医生。";
     }
-    
+
     @Override
     public boolean isAvailable() {
-        return true; // 模拟服务始终可用
+        return true;
+    }
+
+    private static class HealthStat {
+        String label;
+        double latest, avg, max, min;
+        String unit;
+        String anomaly;
+
+        HealthStat(String label, double latest, double avg, double max, double min, String unit) {
+            this.label = label;
+            this.latest = latest;
+            this.avg = avg;
+            this.max = max;
+            this.min = min;
+            this.unit = unit;
+        }
     }
 }

@@ -11,7 +11,7 @@ import com.health.repository.LoginLogRepository;
 import com.health.repository.UserRepository;
 import com.health.service.AuthService;
 import com.health.utils.JwtUtils;
-import com.health.utils.RedisUtils;
+import com.health.utils.CacheUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -31,7 +31,7 @@ public class AuthServiceImpl implements AuthService {
     private final LoginLogRepository loginLogRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
-    private final RedisUtils redisUtils;
+    private final CacheUtils redisUtils;
 
     private static final String LOGIN_FAIL_PREFIX = "login:fail:";
     private static final String REGISTER_LOCK_PREFIX = "register:lock:";
@@ -43,7 +43,7 @@ public class AuthServiceImpl implements AuthService {
                            LoginLogRepository loginLogRepository,
                            PasswordEncoder passwordEncoder,
                            JwtUtils jwtUtils,
-                           RedisUtils redisUtils) {
+                           CacheUtils redisUtils) {
         this.userRepository = userRepository;
         this.loginLogRepository = loginLogRepository;
         this.passwordEncoder = passwordEncoder;

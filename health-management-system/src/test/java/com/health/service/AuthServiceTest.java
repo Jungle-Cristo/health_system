@@ -9,7 +9,7 @@ import com.health.repository.LoginLogRepository;
 import com.health.repository.UserRepository;
 import com.health.service.impl.AuthServiceImpl;
 import com.health.utils.JwtUtils;
-import com.health.utils.RedisUtils;
+import com.health.utils.CacheUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,7 +39,7 @@ class AuthServiceTest {
     @Mock
     private JwtUtils jwtUtils;
     @Mock
-    private RedisUtils redisUtils;
+    private CacheUtils redisUtils;
 
     @InjectMocks
     private AuthServiceImpl authService;

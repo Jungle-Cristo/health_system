@@ -1,26 +1,23 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { User, Brain, MessageSquare } from 'lucide-vue-next';
+import AppLayout from '../../components/common/AppLayout.vue';
 import GlassCard from '../../components/common/GlassCard.vue';
 import TrendChart from '../../components/health/TrendChart.vue';
 import DataInputForm from '../../components/health/DataInputForm.vue';
 import DataList from '../../components/health/DataList.vue';
 import HealthStats from '../../components/health/HealthStats.vue';
 import HealthAlerts from '../../components/health/HealthAlerts.vue';
-import { Activity, Heart, Moon, Footprints, Scale, Gauge, Droplets, User, Brain, MessageSquare } from 'lucide-vue-next';
-import { useRouter } from 'vue-router';
 import { getHealthDataList, type HealthDataResponse } from '../../api/health';
 
 const router = useRouter();
-
 const refreshTrigger = ref(0);
 const todayHealthData = ref<HealthDataResponse[]>([]);
-
 const username = ref('User');
+
 onMounted(() => {
-  const storedUsername = localStorage.getItem('username');
-  if (storedUsername) {
-    username.value = storedUsername;
-  }
+  username.value = localStorage.getItem('username') || 'User';
   loadTodayData();
 });
 
@@ -29,8 +26,8 @@ const loadTodayData = async () => {
     const today = new Date().toISOString().split('T')[0];
     const res = await getHealthDataList('', today, today);
     todayHealthData.value = res.data || [];
-  } catch (error) {
-    console.error('加载今日数据失败:', error);
+  } catch {
+    // 静默失败
   }
 };
 
@@ -38,25 +35,12 @@ const handleDataChange = () => {
   refreshTrigger.value++;
   loadTodayData();
 };
-
-const navigateToAIChat = () => {
-  router.push('/ai-chat');
-};
-
-const allHealthMetrics = [
-  { type: 'steps', label: '步数', icon: Footprints, color: 'text-blue-400', bgColor: 'bg-blue-500' },
-  { type: 'heart_rate', label: '心率', icon: Heart, color: 'text-red-400', bgColor: 'bg-red-500' },
-  { type: 'sleep', label: '睡眠', icon: Moon, color: 'text-purple-400', bgColor: 'bg-purple-500' },
-  { type: 'weight', label: '体重', icon: Scale, color: 'text-green-400', bgColor: 'bg-green-500' },
-  { type: 'blood_pressure', label: '血压', icon: Gauge, color: 'text-yellow-400', bgColor: 'bg-yellow-500' },
-  { type: 'blood_sugar', label: '血糖', icon: Droplets, color: 'text-orange-400', bgColor: 'bg-orange-500' }
-];
 </script>
 
 <template>
-  <div class="home-container p-6 md:p-8">
-    <header class="mb-8">
-      <div class="flex items-center gap-3 mb-2">
+  <AppLayout :title="`你好, ${username}!`" subtitle="这是您今天的健康概览">
+    <template #header-left>
+      <div class="flex items-center gap-3">
         <div class="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
           <User class="w-6 h-6 text-white" />
         </div>
@@ -65,7 +49,7 @@ const allHealthMetrics = [
           <p class="text-gray-400">这是您今天的健康概览</p>
         </div>
       </div>
-    </header>
+    </template>
 
     <HealthAlerts :refresh-trigger="refreshTrigger" />
 
@@ -73,7 +57,7 @@ const allHealthMetrics = [
       <HealthStats :refresh-trigger="refreshTrigger" />
     </GlassCard>
 
-    <GlassCard class="mb-6 p-6 hover:bg-white/10 transition-colors cursor-pointer" @click="navigateToAIChat">
+    <GlassCard class="mb-6 p-6 hover:bg-white/10 transition-colors cursor-pointer" @click="router.push('/ai-chat')">
       <div class="flex items-center gap-4">
         <div class="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center">
           <Brain class="w-6 h-6 text-white" />
@@ -82,9 +66,7 @@ const allHealthMetrics = [
           <h3 class="text-lg font-semibold text-white mb-1">智能健康助手</h3>
           <p class="text-gray-400 text-sm">有健康问题？随时咨询AI助手，获取专业建议</p>
         </div>
-        <div class="text-indigo-400">
-          <MessageSquare class="w-5 h-5" />
-        </div>
+        <MessageSquare class="w-5 h-5 text-indigo-400" />
       </div>
     </GlassCard>
 
@@ -92,25 +74,13 @@ const allHealthMetrics = [
       <GlassCard class="lg:col-span-2 p-6">
         <TrendChart :refresh-trigger="refreshTrigger" />
       </GlassCard>
-
       <GlassCard class="p-6">
         <DataInputForm @success="handleDataChange" />
       </GlassCard>
     </div>
 
     <GlassCard class="mt-6 p-6">
-      <DataList 
-        :refresh-trigger="refreshTrigger" 
-        @deleted="handleDataChange"
-      />
+      <DataList :refresh-trigger="refreshTrigger" @deleted="handleDataChange" />
     </GlassCard>
-  </div>
+  </AppLayout>
 </template>
-
-<style scoped>
-.home-container {
-  max-width: 1440px;
-  margin: 0 auto;
-  min-height: 100vh;
-}
-</style>

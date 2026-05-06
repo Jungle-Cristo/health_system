@@ -17,6 +17,12 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(AIServiceException.class)
+    public Result<?> handleAIServiceException(AIServiceException e) {
+        log.error("AI Service Exception: {} (code={})", e.getMessage(), e.getErrorCode());
+        return Result.error(e.getErrorCode().ordinal() + 5000, e.getMessage());
+    }
+
     @ExceptionHandler(BusinessException.class)
     public Result<?> handleBusinessException(BusinessException e) {
         log.error("Business Exception: {}", e.getMessage());

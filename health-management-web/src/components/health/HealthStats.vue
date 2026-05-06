@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { 
-  Activity, Heart, Moon, Footprints, Scale, Gauge, Droplets, TrendingUp, TrendingDown, Minus 
+import {
+  TrendingUp, TrendingDown, Minus, Activity
 } from 'lucide-vue-next';
 import GlassCard from '../common/GlassCard.vue';
-import { getHealthDataList, healthDataTypes, getLabelByType, getUnitByType, type HealthDataResponse } from '../../api/health';
+import { getHealthDataList, type HealthDataResponse } from '../../api/health';
+import { healthMetrics as metricsConfig } from '../../config/healthMetrics';
 
 const props = defineProps<{
   refreshTrigger?: number;
@@ -82,63 +83,19 @@ const calculateStats = (type: string) => {
   };
 };
 
-// 各健康指标配置
-const healthMetrics = computed(() => [
-  {
-    type: 'steps',
-    label: '步数',
-    icon: Footprints,
-    color: 'text-blue-400',
-    bgColor: 'bg-blue-500',
-    stats: calculateStats('steps'),
-    thresholds: { min: 1000, max: 30000, warningMin: 3000, warningMax: 25000 }
-  },
-  {
-    type: 'heart_rate',
-    label: '心率',
-    icon: Heart,
-    color: 'text-red-400',
-    bgColor: 'bg-red-500',
-    stats: calculateStats('heart_rate'),
-    thresholds: { min: 40, max: 200, warningMin: 60, warningMax: 100 }
-  },
-  {
-    type: 'sleep',
-    label: '睡眠',
-    icon: Moon,
-    color: 'text-purple-400',
-    bgColor: 'bg-purple-500',
-    stats: calculateStats('sleep'),
-    thresholds: { min: 0, max: 24, warningMin: 6, warningMax: 10 }
-  },
-  {
-    type: 'weight',
-    label: '体重',
-    icon: Scale,
-    color: 'text-green-400',
-    bgColor: 'bg-green-500',
-    stats: calculateStats('weight'),
-    thresholds: { min: 20, max: 300, warningMin: 50, warningMax: 100 }
-  },
-  {
-    type: 'blood_pressure',
-    label: '血压',
-    icon: Gauge,
-    color: 'text-yellow-400',
-    bgColor: 'bg-yellow-500',
-    stats: calculateStats('blood_pressure'),
-    thresholds: { min: 50, max: 200, warningMin: 90, warningMax: 140 }
-  },
-  {
-    type: 'blood_sugar',
-    label: '血糖',
-    icon: Droplets,
-    color: 'text-orange-400',
-    bgColor: 'bg-orange-500',
-    stats: calculateStats('blood_sugar'),
-    thresholds: { min: 2, max: 30, warningMin: 3.9, warningMax: 7.8 }
-  }
-]);
+const healthMetrics = computed(() =>
+  metricsConfig.map(m => ({
+    ...m,
+    bgColor: m.color.replace('text-', 'bg-'),
+    stats: calculateStats(m.type),
+    thresholds: {
+      min: m.thresholds.low * 0.5,
+      max: m.thresholds.high * 1.5,
+      warningMin: m.thresholds.low,
+      warningMax: m.thresholds.high,
+    },
+  }))
+);
 
 // 获取趋势图标
 const getTrendIcon = (trend: 'up' | 'down' | 'stable') => {
@@ -221,7 +178,7 @@ onMounted(loadAllData);
               <h4 class="text-sm text-gray-400">{{ metric.label }}</h4>
               <div class="flex items-baseline gap-1">
                 <span class="text-2xl font-bold text-white">{{ metric.stats.current }}</span>
-                <span class="text-sm text-gray-400">{{ getUnitByType(metric.type) }}</span>
+                <span class="text-sm text-gray-400">{{ metric.unit }}</span>
               </div>
             </div>
           </div>

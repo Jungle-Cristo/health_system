@@ -68,24 +68,7 @@ const handleDelete = async (id: number) => {
   }
 };
 
-// 格式化日期
-const formatDate = (dateStr: string) => {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-};
-
-// 格式化时间
-const formatTime = (dateStr: string) => {
-  const date = new Date(dateStr);
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
+import { formatDate, formatTime } from '../../lib/utils';
 
 // 获取类型颜色
 const getTypeColor = (type: string) => {

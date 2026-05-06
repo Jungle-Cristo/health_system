@@ -12,7 +12,7 @@ import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisSentinelConnection;
 
 @Configuration
-public class MockRedisConfig {
+public class CacheConfig {
 
     @Bean
     @ConditionalOnMissingBean(RedisConnectionFactory.class)

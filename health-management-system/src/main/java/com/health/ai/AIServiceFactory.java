@@ -1,5 +1,6 @@
 package com.health.ai;
 
+import com.health.ai.impl.DeepSeekAdapter;
 import com.health.ai.impl.MockAIAdapter;
 import com.health.ai.impl.OpenAIAdapter;
 import com.health.ai.impl.WenxinAdapter;
@@ -22,13 +23,15 @@ public class AIServiceFactory {
     private final Map<AIProvider, AIServiceAdapter> adapters = new EnumMap<>(AIProvider.class);
     private final AIConfig config;
     
-    public AIServiceFactory(AIConfig config, 
-                           OpenAIAdapter openAIAdapter, 
+    public AIServiceFactory(AIConfig config,
+                           OpenAIAdapter openAIAdapter,
                            WenxinAdapter wenxinAdapter,
+                           DeepSeekAdapter deepSeekAdapter,
                            MockAIAdapter mockAIAdapter) {
         this.config = config;
         this.adapters.put(AIProvider.OPENAI, openAIAdapter);
         this.adapters.put(AIProvider.BAIDU_WENXIN, wenxinAdapter);
+        this.adapters.put(AIProvider.DEEPSEEK, deepSeekAdapter);
         this.adapters.put(AIProvider.MOCK, mockAIAdapter);
         
         log.info("AI服务工厂初始化完成，已注册 {} 个服务提供商", adapters.size());

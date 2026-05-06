@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { AlertTriangle, X, Bell, Heart, Moon, Footprints, Scale, Gauge, Droplets } from 'lucide-vue-next';
+import { AlertTriangle, X, Bell } from 'lucide-vue-next';
 import { getHealthDataList, getLabelByType, getUnitByType, type HealthDataResponse } from '../../api/health';
+import { healthMetrics as metricsConfig, getMetricConfig } from '../../config/healthMetrics';
 
 const props = defineProps<{
   refreshTrigger?: number;
@@ -19,28 +20,18 @@ const alerts = ref<Array<{
 
 const showAlerts = ref(true);
 
-// 健康指标阈值配置
-const healthThresholds: Record<string, { min: number; max: number; warningMin: number; warningMax: number }> = {
-  steps: { min: 0, max: 50000, warningMin: 1000, warningMax: 30000 },
-  heart_rate: { min: 30, max: 220, warningMin: 60, warningMax: 100 },
-  sleep: { min: 0, max: 24, warningMin: 6, warningMax: 10 },
-  weight: { min: 20, max: 300, warningMin: 50, warningMax: 100 },
-  blood_pressure: { min: 50, max: 200, warningMin: 90, warningMax: 140 },
-  blood_sugar: { min: 2, max: 30, warningMin: 3.9, warningMax: 7.8 }
-};
-
-// 获取图标
-const getIcon = (type: string) => {
-  const icons: Record<string, any> = {
-    steps: Footprints,
-    heart_rate: Heart,
-    sleep: Moon,
-    weight: Scale,
-    blood_pressure: Gauge,
-    blood_sugar: Droplets
+// 健康指标阈值配置（从共享配置生成）
+const healthThresholds: Record<string, { min: number; max: number; warningMin: number; warningMax: number }> = {};
+metricsConfig.forEach(m => {
+  healthThresholds[m.type] = {
+    min: m.thresholds.low * 0.5,
+    max: m.thresholds.high * 1.5,
+    warningMin: m.thresholds.low,
+    warningMax: m.thresholds.high,
   };
-  return icons[type] || AlertTriangle;
-};
+});
+
+const getIcon = (type: string) => getMetricConfig(type)?.icon || AlertTriangle;
 
 // 检查数据是否异常
 const checkHealthData = (data: HealthDataResponse[]) => {

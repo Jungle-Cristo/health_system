@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, nextTick } from 'vue';
 import { MessageSquare, Send, Loader2, Trash2, Clock, User, Bot, HelpCircle } from 'lucide-vue-next';
 import GlassCard from '../common/GlassCard.vue';
-import { getAIResponse, getChatHistory, type AIChatMessage, type AIChatResponse } from '../../api/ai';
+import { getAIResponse, getChatHistory, type AIChatMessage } from '../../api/ai';
+import { formatTime } from '../../lib/utils';
 
 const props = defineProps<{
   userId?: number;
@@ -24,11 +25,10 @@ const handleExternalQuestion = async (question: string) => {
 const loadChatHistory = async () => {
   try {
     const res = await getChatHistory();
-    // 确保messages.value始终是数组
-    if (Array.isArray(res.data)) {
-      messages.value = res.data;
+    if (Array.isArray(res)) {
+      messages.value = res;
     } else {
-      console.error('聊天历史数据格式错误:', res.data);
+      console.error('聊天历史数据格式错误:', res);
       messages.value = [];
     }
   } catch (error) {
@@ -71,11 +71,11 @@ const sendMessage = async () => {
     });
     
     // 检查是否有错误
-    if (response.data.error) {
+    if (response.error) {
       // 处理后端返回的错误
       let errorContent = '抱歉，处理您的请求时出现错误。';
       
-      switch (response.data.error) {
+      switch (response.error) {
         case 'INVALID_INPUT':
           errorContent = '输入内容无效，请检查您的输入。';
           break;
@@ -95,7 +95,7 @@ const sendMessage = async () => {
           errorContent = 'AI服务暂时不可用，请稍后再试。';
           break;
         default:
-          errorContent = response.data.message || '抱歉，我暂时无法回答您的问题。';
+          errorContent = response.message || '抱歉，我暂时无法回答您的问题。';
       }
       
       // 添加错误消息
@@ -113,7 +113,7 @@ const sendMessage = async () => {
       const aiMessage: AIChatMessage = {
         id: `msg_${Date.now() + 1}`,
         role: 'assistant',
-        content: response.data.response,
+        content: response.response,
         timestamp: new Date().toISOString(),
         chatId: chatId.value
       };
@@ -152,13 +152,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   }
 };
 
-// 时间格式化
-const formatTime = (timestamp: string) => {
-  return new Date(timestamp).toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
+// formatTime 从 lib/utils 导入
 
 onMounted(() => {
   loadChatHistory();

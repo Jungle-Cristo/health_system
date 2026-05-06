@@ -44,7 +44,7 @@ request.interceptors.request.use(
 request.interceptors.response.use(
   (response) => {
     const res = response.data;
-    if (res.code !== 200) {
+    if (typeof res.code === 'number' && res.code !== 200) {
       const message = codeMessageMap[res.code] || res.message || '请求失败';
       ElMessage.error(message);
       return Promise.reject(new Error(message));

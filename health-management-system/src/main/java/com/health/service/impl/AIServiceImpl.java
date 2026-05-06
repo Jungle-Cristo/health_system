@@ -5,16 +5,23 @@ import com.health.ai.AIServiceAdapter;
 import com.health.ai.AIServiceFactory;
 import com.health.ai.RateLimiter;
 import com.health.ai.impl.WenxinAdapter;
+import com.health.dto.HealthDataResponse;
 import com.health.entity.AIChatMessage;
 import com.health.exception.AIServiceException;
 import com.health.repository.AIChatMessageRepository;
 import com.health.service.AIService;
+import com.health.service.HealthDataService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -35,6 +42,9 @@ public class AIServiceImpl implements AIService {
     @Autowired
     private RateLimiter rateLimiter;
 
+    @Autowired
+    private HealthDataService healthDataService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -53,9 +63,10 @@ public class AIServiceImpl implements AIService {
             rateLimiter.validateInput(message);
 
             // 2. 速率限制检查
-            rateLimiter.checkRateLimit(userId, "127.0.0.1");
+            String clientIp = getClientIp();
+            rateLimiter.checkRateLimit(userId, clientIp);
 
-            // 3. 保存用户消息
+            // 3. 保存用户消息（保存原始消息，保持聊天记录简洁）
             AIChatMessage userMessage = new AIChatMessage();
             userMessage.setUserId(userId);
             userMessage.setChatId(chatId);
@@ -64,8 +75,9 @@ public class AIServiceImpl implements AIService {
             userMessage.setTimestamp(LocalDateTime.now());
             aiChatMessageRepository.save(userMessage);
 
-            // 4. 生成AI回复（带重试机制）
-            String aiResponse = generateAIResponseWithRetry(message, context);
+            // 4. 注入用户健康数据上下文后生成AI回复
+            String enrichedMessage = enrichWithHealthData(userId, message);
+            String aiResponse = generateAIResponseWithRetry(enrichedMessage, context);
 
             // 5. 保存AI回复
             AIChatMessage aiMessage = new AIChatMessage();
@@ -160,6 +172,94 @@ public class AIServiceImpl implements AIService {
         }
 
         throw new AIServiceException(AIServiceException.ErrorCode.SERVER_ERROR);
+    }
+
+    private String enrichWithHealthData(Long userId, String originalMessage) {
+        try {
+            LocalDateTime endDate = LocalDateTime.now();
+            LocalDateTime startDate = endDate.minusDays(30);
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+            List<HealthDataResponse> allData = healthDataService.getHealthDataList(
+                    null, startDate.format(fmt), endDate.format(fmt));
+
+            if (allData == null || allData.isEmpty()) {
+                return originalMessage;
+            }
+
+            String[] orderTypes = {"steps", "heart_rate", "sleep",
+                    "weight", "blood_pressure", "blood_sugar"};
+            Map<String, List<Double>> typeValues = new LinkedHashMap<>();
+            for (String t : orderTypes) {
+                typeValues.put(t, new ArrayList<>());
+            }
+
+            for (HealthDataResponse hd : allData) {
+                List<Double> values = typeValues.get(hd.getType());
+                if (values != null) {
+                    values.add(hd.getValue());
+                }
+            }
+
+            Map<String, String> typeLabels = Map.of(
+                    "steps", "步数", "heart_rate", "心率", "sleep", "睡眠时长",
+                    "weight", "体重", "blood_pressure", "血压", "blood_sugar", "血糖"
+            );
+            Map<String, String> typeUnits = Map.of(
+                    "steps", "步", "heart_rate", "bpm", "sleep", "小时",
+                    "weight", "kg", "blood_pressure", "mmHg", "blood_sugar", "mmol/L"
+            );
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("[用户近期健康数据摘要]\n");
+            sb.append("以下是该用户过去30天的真实健康数据统计：\n");
+
+            for (String t : orderTypes) {
+                List<Double> values = typeValues.get(t);
+                if (values.isEmpty()) continue;
+
+                DoubleSummaryStatistics stats = values.stream()
+                        .mapToDouble(Double::doubleValue).summaryStatistics();
+                double latest = values.get(0);
+
+                sb.append("- ").append(typeLabels.getOrDefault(t, t))
+                        .append(": 最新=").append(String.format("%.1f", latest))
+                        .append(typeUnits.getOrDefault(t, ""))
+                        .append(", 平均=").append(String.format("%.1f", stats.getAverage()))
+                        .append(typeUnits.getOrDefault(t, ""))
+                        .append(", 最高=").append(String.format("%.1f", stats.getMax()))
+                        .append(", 最低=").append(String.format("%.1f", stats.getMin()))
+                        .append("\n");
+            }
+
+            sb.append("\n请基于以上用户的真实健康数据，分析其健康状况，识别潜在风险，");
+            sb.append("并针对异常指标提供具体的改善建议。如果用户的问题与数据相关，请结合数据回答。\n\n");
+            sb.append("[用户问题]\n");
+            sb.append(originalMessage);
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("注入健康数据失败，使用原始消息: {}", e.getMessage());
+            return originalMessage;
+        }
+    }
+
+    private String getClientIp() {
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                HttpServletRequest req = attrs.getRequest();
+                String ip = req.getHeader("X-Forwarded-For");
+                if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+                    ip = req.getHeader("X-Real-IP");
+                }
+                if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+                    ip = req.getRemoteAddr();
+                }
+                return ip != null ? ip : "127.0.0.1";
+            }
+        } catch (Exception ignored) {}
+        return "127.0.0.1";
     }
 
     @Override

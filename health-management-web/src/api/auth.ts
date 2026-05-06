@@ -26,3 +26,13 @@ export function register(data: RegisterRequest) {
 export function login(data: LoginRequest) {
   return request.post<any, { data: AuthResponse }>('/auth/login', data);
 }
+
+export function logout() {
+  return request.post('/auth/logout');
+}
+
+export function clearAuth() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('userId');
+  localStorage.removeItem('username');
+}

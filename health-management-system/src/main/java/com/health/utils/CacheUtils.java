@@ -6,11 +6,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Component
-public class RedisUtils {
+public class CacheUtils {
 
     private static final ConcurrentHashMap<String, MemoryEntry> MEMORY = new ConcurrentHashMap<>();
 
-    public RedisUtils() {
+    public CacheUtils() {
     }
 
     public void set(String key, String value, long timeout, TimeUnit unit) {

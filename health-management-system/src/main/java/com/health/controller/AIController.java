@@ -3,6 +3,8 @@ package com.health.controller;
 import com.health.ai.AIProvider;
 import com.health.entity.AIChatMessage;
 import com.health.service.AIService;
+import com.health.utils.JwtUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,12 +15,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/ai")
 public class AIController {
-    
+
     @Autowired
     private AIService aiService;
+
+    @Autowired
+    private JwtUtils jwtUtils;
+
+    private Long getCurrentUserId() {
+        Long userId = jwtUtils.getCurrentUserId();
+        return userId != null ? userId : 1L;
+    }
     
     /**
      * 处理AI聊天请求
@@ -29,7 +40,7 @@ public class AIController {
     public ResponseEntity<Map<String, Object>> chat(@RequestBody Map<String, Object> request) {
         try {
             // 从请求头获取用户ID（实际应用中从JWT解析）
-            Long userId = 1L; // 临时硬编码，实际应该从JWT中获取
+            Long userId = getCurrentUserId();
             
             Map<String, Object> response = aiService.handleChatRequest(userId, request);
             
@@ -67,7 +78,7 @@ public class AIController {
             
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("AI controller error: {}", e.getMessage(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("error", "SERVER_ERROR");
             errorResponse.put("message", "服务器内部错误");
@@ -82,11 +93,11 @@ public class AIController {
     @GetMapping("/history")
     public ResponseEntity<List<AIChatMessage>> getChatHistory() {
         try {
-            Long userId = 1L; // 临时硬编码
+            Long userId = getCurrentUserId();
             List<AIChatMessage> history = aiService.getChatHistory(userId);
             return ResponseEntity.ok(history);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("AI controller error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -98,11 +109,11 @@ public class AIController {
     @DeleteMapping("/history")
     public ResponseEntity<Void> clearChatHistory() {
         try {
-            Long userId = 1L; // 临时硬编码
+            Long userId = getCurrentUserId();
             aiService.clearChatHistory(userId);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("AI controller error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -120,7 +131,7 @@ public class AIController {
             response.put("name", provider.getName());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("AI controller error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -143,7 +154,7 @@ public class AIController {
                     .collect(Collectors.toList());
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("AI controller error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -173,7 +184,7 @@ public class AIController {
             response.put("message", "AI服务提供商已切换为: " + provider.getName());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("AI controller error: {}", e.getMessage(), e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "SWITCH_FAILED");
             error.put("message", "切换提供商失败: " + e.getMessage());
